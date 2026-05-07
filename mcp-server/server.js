@@ -28,16 +28,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "get_capital",
-        description: "Get capital city of country",
+        description: "Get capital city by state",
         inputSchema: {
           type: "object",
           properties: {
-            country: {
+            state: {
               type: "string",
-              description: "Country name"
+              description: "Indian state name"
             }
           },
-          required: ["country"]
+          required: ["state"]
+        }
+      },
+      {
+        name: "get_weather",
+        description: "Get weather and geographical info by city",
+        inputSchema: {
+          type: "object",
+          properties: {
+            city: {
+              type: "string",
+              description: "City name"
+            }
+          },
+          required: ["city"]
         }
       }
     ]
@@ -53,7 +67,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   if (toolName === "get_capital") {
     const response = await axios.get(
-      `http://localhost:8080/api/capital/${args.country}`
+      `http://localhost:8080/capital/${args.state}`
+    );
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response.data)
+        }
+      ]
+    };
+  }
+
+  if (toolName === "get_weather") {
+    const response = await axios.get(
+      `http://localhost:8081/api/weather/${args.city}`
     );
 
     return {
