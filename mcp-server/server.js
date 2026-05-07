@@ -1,75 +1,79 @@
-import express from "express";
-import fetch from "node-fetch";
+import axios from "axios";
 
-const app = express();
-app.use(express.json());
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-const PORT = 3000;
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema
+} from "@modelcontextprotocol/sdk/types.js";
 
-//
-// ✅ TOOL DEFINITIONS (like MCP /tools)
-//
-app.get("/tools", (req, res) => {
-  res.json([
-    {
-      name: "get_capital",
-      description: "Get capital of Indian state",
-      input_schema: {
-        type: "object",
-        properties: {
-          state: { type: "string" }
-        },
-        required: ["state"]
-      }
-    },
-    {
-      name: "list_states",
-      description: "List all states",
-      input_schema: {
-        type: "object",
-        properties: {}
-      }
+const server = new Server(
+  {
+    name: "india-mcp-server",
+    version: "1.0.0"
+  },
+  {
+    capabilities: {
+      tools: {}
     }
-  ]);
-});
-
-//
-// ✅ TOOL EXECUTION (like MCP /call)
-//
-app.post("/call", async (req, res) => {
-  const { name, arguments: args } = req.body;
-
-  try {
-    if (name === "get_capital") {
-      const response = await fetch(
-        `http://localhost:8080/capital/${args.state}`
-      );
-      const capital = await response.text();
-
-      return res.json({
-        content: [{ type: "text", text: `Capital of ${args.state} is ${capital}` }]
-      });
-    }
-
-    if (name === "list_states") {
-      const response = await fetch("http://localhost:8080/states");
-      const states = await response.json();
-
-      return res.json({
-        content: [{ type: "text", text: states.join(", ") }]
-      });
-    }
-
-    res.status(400).json({ error: "Unknown tool" });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
+);
+
+/**
+ * LIST TOOLS
+ */
+server.setRequestHandler(ListToolsRequestSchema, async () => {
+  return {
+    tools: [
+      {
+        name: "get_capital",
+        description: "Get capital city of country",
+        inputSchema: {
+          type: "object",
+          properties: {
+            country: {
+              type: "string",
+              description: "Country name"
+            }
+          },
+          required: ["country"]
+        }
+      }
+    ]
+  };
 });
 
-//
-// ✅ START SERVER
-//
-app.listen(PORT, () => {
-  console.log(`MCP HTTP Server running on http://localhost:${PORT}`);
+/**
+ * CALL TOOL
+ */
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const toolName = request.params.name;
+  const args = request.params.arguments;
+
+  if (toolName === "get_capital") {
+    const response = await axios.get(
+      `http://localhost:8080/api/capital/${args.country}`
+    );
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(response.data)
+        }
+      ]
+    };
+  }
+
+  throw new Error(`Unknown tool: ${toolName}`);
 });
+
+/**
+ * START SERVER
+ */
+const transport = new StdioServerTransport();
+
+await server.connect(transport);
+
+console.error("MCP Server Started");

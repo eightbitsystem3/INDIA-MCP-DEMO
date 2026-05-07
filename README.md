@@ -26,3 +26,9 @@ What is the capital of Rajasthan?
 
 Output:
 Capital of Rajasthan is Jaipur
+
+##Tester
+npx @modelcontextprotocol/inspector node server.js
+
+user Complete path.
+C:\\opt\\code\\INDIA-MCP-DEMO\\mcp-server\\server.js
