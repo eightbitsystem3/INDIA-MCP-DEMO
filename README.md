@@ -32,3 +32,7 @@ npx @modelcontextprotocol/inspector node server.js
 
 user Complete path.
 C:\\opt\\code\\INDIA-MCP-DEMO\\mcp-server\\server.js
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/eightbitsystem3/INDIA-MCP-DEMO/main/MCP-Demo-2.png" width="60%" />
+</p>
