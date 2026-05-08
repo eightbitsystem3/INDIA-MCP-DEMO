@@ -47,26 +47,15 @@ function askQuestion(query) {
 }
 
 // --------------------------------------------------
-// SIMPLE TOOL DEFINITIONS
+// TOOL DEFINITIONS
 // --------------------------------------------------
 
 const tools = [
   {
     type: "function",
     function: {
-      name: "list_states",
-      description: "List all Indian states",
-      parameters: {
-        type: "object",
-        properties: {}
-      }
-    }
-  },
-  {
-    type: "function",
-    function: {
       name: "get_capital",
-      description: "Get capital city by state name",
+      description: "Get capital city by Indian state",
       parameters: {
         type: "object",
         properties: {
@@ -79,11 +68,30 @@ const tools = [
       }
     }
   },
+
   {
     type: "function",
     function: {
-      name: "get_weather",
-      description: "Get weather by city name",
+      name: "get_weather_by_state",
+      description: "Get weather details by Indian state",
+      parameters: {
+        type: "object",
+        properties: {
+          state: {
+            type: "string",
+            description: "Indian state name"
+          }
+        },
+        required: ["state"]
+      }
+    }
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "get_weather_by_city",
+      description: "Get weather details by city",
       parameters: {
         type: "object",
         properties: {
@@ -95,11 +103,30 @@ const tools = [
         required: ["city"]
       }
     }
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "get_state_info",
+      description:
+        "Get complete state information including capital and weather",
+      parameters: {
+        type: "object",
+        properties: {
+          state: {
+            type: "string",
+            description: "Indian state name"
+          }
+        },
+        required: ["state"]
+      }
+    }
   }
 ];
 
 console.log("\n✅ MCP Client Started");
-console.log("Ask anything...\n");
+console.log("Type 'exit' to quit.\n");
 
 // --------------------------------------------------
 // MAIN LOOP
@@ -109,7 +136,12 @@ while (true) {
 
   const userInput = await askQuestion("You: ");
 
+  // --------------------------------------------------
+  // EXIT
+  // --------------------------------------------------
+
   if (userInput.toLowerCase() === "exit") {
+
     console.log("Goodbye!");
     process.exit(0);
   }
@@ -130,21 +162,21 @@ while (true) {
 You are an India assistant.
 
 Available tools:
-- list_states
 - get_capital
-- get_weather
+- get_weather_by_state
+- get_weather_by_city
+- get_state_info
 
 Rules:
-- If user asks weather in capital:
-  1. call get_capital
-  2. then call get_weather
-
-- Never generate fake weather.
-- Never assume weather.
-- If tool says not found then say:
-  "Weather information not found."
+- If user asks:
+  "What is weather in capital of Rajasthan?"
+  then use:
+  get_state_info
 
 - Always use tools.
+- Never generate fake weather.
+- Never assume weather.
+- Only respond using tool results.
 `
         },
         {
@@ -164,14 +196,13 @@ Rules:
 
     if (message.tool_calls) {
 
-      let capitalName = "";
-      let weatherData = "";
-
       for (const toolCall of message.tool_calls) {
 
         const toolName = toolCall.function.name;
 
-        const toolArgs = JSON.parse(toolCall.function.arguments);
+        const toolArgs = JSON.parse(
+          toolCall.function.arguments
+        );
 
         console.log(`\n🔧 Calling Tool: ${toolName}`);
         console.log("Arguments:", toolArgs);
@@ -185,107 +216,23 @@ Rules:
           arguments: toolArgs
         });
 
-        console.log("Tool Result:", result);
-
-        const toolText = result?.content?.[0]?.text || "";
-
-        // --------------------------------------------------
-        // CAPITAL
-        // --------------------------------------------------
-
-        if (toolName === "get_capital") {
-
-          capitalName = toolText.replace(/"/g, "").trim();
-
-          console.log(`\n🏛 Capital Found: ${capitalName}`);
-
-          // --------------------------------------------------
-          // NOW CALL WEATHER MANUALLY
-          // --------------------------------------------------
-
-          console.log(`\n🔧 Calling Tool: get_weather`);
-          console.log(`Arguments: { city: "${capitalName}" }`);
-
-          const weatherResult = await mcpClient.callTool({
-            name: "get_weather",
-            arguments: {
-              city: capitalName
-            }
-          });
-
-          console.log("Tool Result:", weatherResult);
-
-          const weatherText =
-            weatherResult?.content?.[0]?.text || "";
-
-          // --------------------------------------------------
-          // VALIDATE WEATHER
-          // --------------------------------------------------
-
-          if (
-            weatherText.includes("Not Found") ||
-            weatherText.includes('"temperature": 0') ||
-            weatherText.includes('"condition": "Not Found"')
-          ) {
-
-            console.log("\n❌ Weather information not found.\n");
-            weatherData = "Weather information not found.";
-
-          } else {
-
-            weatherData = weatherText;
-          }
-        }
+        console.log("\n📦 MCP Response:");
+        console.log(result);
 
         // --------------------------------------------------
-        // DIRECT WEATHER TOOL
+        // EXTRACT RESPONSE
         // --------------------------------------------------
 
-        else if (toolName === "get_weather") {
-
-          if (
-            toolText.includes("Not Found") ||
-            toolText.includes('"temperature": 0') ||
-            toolText.includes('"condition": "Not Found"')
-          ) {
-
-            weatherData = "Weather information not found.";
-
-          } else {
-
-            weatherData = toolText;
-          }
-        }
+        const toolText =
+          result?.content?.[0]?.text || "No response";
 
         // --------------------------------------------------
-        // LIST STATES
+        // PRINT FINAL OUTPUT
         // --------------------------------------------------
-
-        else if (toolName === "list_states") {
-
-          console.log(`\n🤖 AI:\n${toolText}\n`);
-        }
-      }
-
-      // --------------------------------------------------
-      // FINAL RESPONSE
-      // --------------------------------------------------
-
-      if (capitalName && weatherData) {
 
         console.log(`
-🤖 AI:
-Capital: ${capitalName}
-
-Weather:
-${weatherData}
-`);
-      }
-      else if (weatherData) {
-
-        console.log(`
-🤖 AI:
-${weatherData}
+🤖 AI Response:
+${toolText}
 `);
       }
 
@@ -295,7 +242,10 @@ ${weatherData}
       // NO TOOL CALL
       // --------------------------------------------------
 
-      console.log(`\n🤖 AI: ${message.content}\n`);
+      console.log(`
+🤖 AI:
+${message.content}
+`);
     }
 
   } catch (err) {
