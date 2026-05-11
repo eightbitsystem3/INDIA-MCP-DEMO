@@ -125,7 +125,7 @@ const tools = [
   }
 ];
 
-console.log("\n✅ MCP Client Started");
+console.log("\n MCP Client Started");
 console.log("Type 'exit' to quit.\n");
 
 // --------------------------------------------------
@@ -216,7 +216,7 @@ while (true) {
           arguments: toolArgs
         });
 
-        console.log("\n📦 MCP Response:");
+        console.log("\n MCP Response:");
         console.log(result);
 
         // --------------------------------------------------
@@ -231,7 +231,7 @@ while (true) {
         // --------------------------------------------------
 
         console.log(`
-🤖 AI Response:
+ AI Response:
 ${toolText}
 `);
       }
@@ -243,14 +243,14 @@ ${toolText}
       // --------------------------------------------------
 
       console.log(`
-🤖 AI:
+ AI:
 ${message.content}
 `);
     }
 
   } catch (err) {
 
-    console.error("\n❌ ERROR:");
+    console.error("\n ERROR:");
     console.error(err.message);
   }
 }
