@@ -49,81 +49,16 @@ function askQuestion(query) {
 // --------------------------------------------------
 // TOOL DEFINITIONS
 // --------------------------------------------------
+const mcpTools = await mcpClient.listTools();
 
-const tools = [
-  {
-    type: "function",
-    function: {
-      name: "get_capital",
-      description: "Get capital city by Indian state",
-      parameters: {
-        type: "object",
-        properties: {
-          state: {
-            type: "string",
-            description: "Indian state name"
-          }
-        },
-        required: ["state"]
-      }
-    }
-  },
-
-  {
-    type: "function",
-    function: {
-      name: "get_weather_by_state",
-      description: "Get weather details by Indian state",
-      parameters: {
-        type: "object",
-        properties: {
-          state: {
-            type: "string",
-            description: "Indian state name"
-          }
-        },
-        required: ["state"]
-      }
-    }
-  },
-
-  {
-    type: "function",
-    function: {
-      name: "get_weather_by_city",
-      description: "Get weather details by city",
-      parameters: {
-        type: "object",
-        properties: {
-          city: {
-            type: "string",
-            description: "City name"
-          }
-        },
-        required: ["city"]
-      }
-    }
-  },
-
-  {
-    type: "function",
-    function: {
-      name: "get_state_info",
-      description:
-        "Get complete state information including capital and weather",
-      parameters: {
-        type: "object",
-        properties: {
-          state: {
-            type: "string",
-            description: "Indian state name"
-          }
-        },
-        required: ["state"]
-      }
-    }
+const tools = mcpTools.tools.map(tool => ({
+  type: "function",
+  function: {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.inputSchema
   }
-];
+}));
 
 console.log("\n MCP Client Started");
 console.log("Type 'exit' to quit.\n");

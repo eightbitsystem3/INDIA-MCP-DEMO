@@ -34,7 +34,8 @@ wt ^
 new-tab --title "SPRING BOOT APP 1" cmd /k "cd /d %~dp0spring-boot-app && java -jar target\mcpdemo-0.0.1-SNAPSHOT.jar" ^
 ; new-tab --title "SPRING BOOT APP 2" cmd /k "cd /d %~dp0spring-boot-app2 && java -jar target\mcpdemo2-0.0.1-SNAPSHOT.jar" ^
 ; new-tab --title "MCP SERVER" cmd /k "cd /d %~dp0mcp-server && node server.js" ^
-; new-tab --title "MCP CLIENT" cmd /k "cd /d %~dp0client && node client.js"
+; new-tab --title "MCP CLIENT" cmd /k "cd /d %~dp0client && node client.js" ^
+; new-tab --title "MCP Inspector" cmd /k"npx @modelcontextprotocol/inspector node server.js"
 
 echo.
 echo =========================================
