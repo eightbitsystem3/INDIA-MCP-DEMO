@@ -6,10 +6,10 @@ import { v4 as uuidv4 } from "uuid";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
+import { generateEmbedding } from "./embeddingService.js";
 import { pool } from "./db.js";
 
 dotenv.config();
-
 
 // --------------------------------------------------
 // DATABASE FUNCTIONS
@@ -38,6 +38,16 @@ async function saveMessage(sessionId, role, content) {
   return result.rows[0].id;
 }
 
+async function saveEmbedding(messageId, sessionId, embedding) {
+  await pool.query(
+    `
+    INSERT INTO message_embedding
+    (message_id, session_id, embedding)
+    VALUES ($1, $2, $3)
+    `,
+    [messageId, sessionId, JSON.stringify(embedding)]
+  );
+}
 
 // --------------------------------------------------
 // MCP CLIENT CONNECTION
@@ -55,16 +65,14 @@ const mcpClient = new Client({
 
 await mcpClient.connect(transport);
 
-
 // --------------------------------------------------
-// LLM CLIENT (Groq/OpenAI Compatible)
+// LLM CLIENT
 // --------------------------------------------------
 
 const llm = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: process.env.OPENAI_BASE_URL
 });
-
 
 // --------------------------------------------------
 // READLINE CHAT
@@ -81,7 +89,6 @@ function askQuestion(query) {
   });
 }
 
-
 // --------------------------------------------------
 // FETCH MCP TOOLS
 // --------------------------------------------------
@@ -97,7 +104,6 @@ const tools = mcpTools.tools.map((tool) => ({
   }
 }));
 
-
 // --------------------------------------------------
 // START CHAT SESSION
 // --------------------------------------------------
@@ -108,7 +114,6 @@ console.log("Type 'exit' to quit.\n");
 const sessionId = await createSession();
 console.log("Session ID:", sessionId);
 
-
 // --------------------------------------------------
 // MAIN LOOP
 // --------------------------------------------------
@@ -116,7 +121,6 @@ console.log("Session ID:", sessionId);
 while (true) {
   const userInput = await askQuestion("You: ");
 
-  // EXIT
   if (userInput.toLowerCase() === "exit") {
     console.log("Goodbye!");
     process.exit(0);
@@ -126,7 +130,24 @@ while (true) {
     // ----------------------------------------------
     // SAVE USER MESSAGE
     // ----------------------------------------------
-    await saveMessage(sessionId, "user", userInput);
+    const userMessageId = await saveMessage(
+      sessionId,
+      "user",
+      userInput
+    );
+
+    // ----------------------------------------------
+    // GENERATE + SAVE USER EMBEDDING
+    // ----------------------------------------------
+    console.log("Generating user embedding...");
+
+    const userEmbedding = await generateEmbedding(userInput);
+
+    await saveEmbedding(
+      userMessageId,
+      sessionId,
+      userEmbedding
+    );
 
     // ----------------------------------------------
     // ASK LLM
@@ -147,10 +168,10 @@ Available tools:
 - get_state_info
 
 Rules:
-- Always use tools.
-- Never generate fake weather.
-- Never assume data.
-- Only answer from tool results.
+- Always use tools
+- Never generate fake weather
+- Never assume data
+- Only answer using tool results
 
 Example:
 If user asks:
@@ -177,7 +198,9 @@ get_state_info
     if (message.tool_calls) {
       for (const toolCall of message.tool_calls) {
         const toolName = toolCall.function.name;
-        const toolArgs = JSON.parse(toolCall.function.arguments);
+        const toolArgs = JSON.parse(
+          toolCall.function.arguments
+        );
 
         console.log(`\nCalling Tool: ${toolName}`);
         console.log("Arguments:", toolArgs);
@@ -195,8 +218,28 @@ AI Response:
 ${toolText}
 `);
 
-        // SAVE ASSISTANT RESPONSE
-        await saveMessage(sessionId, "assistant", toolText);
+        // ------------------------------------------
+        // SAVE ASSISTANT MESSAGE
+        // ------------------------------------------
+        const assistantMessageId = await saveMessage(
+          sessionId,
+          "assistant",
+          toolText
+        );
+
+        // ------------------------------------------
+        // GENERATE + SAVE ASSISTANT EMBEDDING
+        // ------------------------------------------
+        console.log("Generating assistant embedding...");
+
+        const assistantEmbedding =
+          await generateEmbedding(toolText);
+
+        await saveEmbedding(
+          assistantMessageId,
+          sessionId,
+          assistantEmbedding
+        );
       }
     } else {
       console.log(`
@@ -204,10 +247,21 @@ AI:
 ${message.content}
 `);
 
-      await saveMessage(
+      const assistantText = message.content || "";
+
+      const assistantMessageId = await saveMessage(
         sessionId,
         "assistant",
-        message.content || ""
+        assistantText
+      );
+
+      const assistantEmbedding =
+        await generateEmbedding(assistantText);
+
+      await saveEmbedding(
+        assistantMessageId,
+        sessionId,
+        assistantEmbedding
       );
     }
   } catch (err) {
