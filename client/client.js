@@ -8,6 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 import { generateEmbedding } from "./embeddingService.js";
 import { pool } from "./db.js";
+import { esClient } from "./elastic.js";
 
 dotenv.config();
 
@@ -18,7 +19,7 @@ dotenv.config();
 async function createSession() {
   const sessionId = uuidv4();
 
-  await pool.query(
+  await esClient.query(
     `INSERT INTO chat_session (id, title)
      VALUES ($1, $2)`,
     [sessionId, "New Chat"]
@@ -28,7 +29,7 @@ async function createSession() {
 }
 
 async function saveMessage(sessionId, role, content) {
-  const result = await pool.query(
+  const result = await esClient.query(
     `INSERT INTO chat_message (session_id, role, content)
      VALUES ($1, $2, $3)
      RETURNING id`,
@@ -39,7 +40,7 @@ async function saveMessage(sessionId, role, content) {
 }
 
 async function saveEmbedding(messageId, sessionId, embedding) {
-  await pool.query(
+  await esClient.query(
     `
     INSERT INTO message_embedding
     (message_id, session_id, embedding)

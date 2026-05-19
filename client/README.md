@@ -36,3 +36,7 @@ Rajasthan capital
 Jaipur weather
 Delhi temperature
 Punjab info
+
+```
+npm install @elastic/elasticsearch
+```

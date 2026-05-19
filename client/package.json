@@ -8,6 +8,7 @@
     "start": "node client.js"
   },
   "dependencies": {
+    "@elastic/elasticsearch": "^9.4.0",
     "@modelcontextprotocol/sdk": "^1.11.0",
     "@xenova/transformers": "^2.17.2",
     "dotenv": "^16.6.1",
