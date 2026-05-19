@@ -7,47 +7,110 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 import { generateEmbedding } from "./embeddingService.js";
-import { pool } from "./db.js";
 import { esClient } from "./elastic.js";
 
 dotenv.config();
 
 // --------------------------------------------------
-// DATABASE FUNCTIONS
+// ELASTICSEARCH SETUP
+// --------------------------------------------------
+
+const INDEX_NAME = "chat_memory";
+
+// Create index if not exists
+async function ensureIndex() {
+  const exists = await esClient.indices.exists({
+    index: INDEX_NAME
+  });
+
+  if (!exists) {
+    console.log("Creating Elasticsearch index...");
+
+    await esClient.indices.create({
+      index: INDEX_NAME,
+      mappings: {
+        properties: {
+          session_id: {
+            type: "keyword"
+          },
+          role: {
+            type: "keyword"
+          },
+          content: {
+            type: "text"
+          },
+          embedding: {
+            type: "dense_vector",
+            dims: 384,
+            index: true,
+            similarity: "cosine"
+          },
+          created_at: {
+            type: "date"
+          }
+        }
+      }
+    });
+
+    console.log("Index created.");
+  }
+}
+
+// --------------------------------------------------
+// SESSION
 // --------------------------------------------------
 
 async function createSession() {
-  const sessionId = uuidv4();
-
-  await esClient.query(
-    `INSERT INTO chat_session (id, title)
-     VALUES ($1, $2)`,
-    [sessionId, "New Chat"]
-  );
-
-  return sessionId;
+  return uuidv4();
 }
 
-async function saveMessage(sessionId, role, content) {
-  const result = await esClient.query(
-    `INSERT INTO chat_message (session_id, role, content)
-     VALUES ($1, $2, $3)
-     RETURNING id`,
-    [sessionId, role, content]
-  );
+// --------------------------------------------------
+// SAVE MEMORY
+// --------------------------------------------------
 
-  return result.rows[0].id;
+async function saveMemory(
+  sessionId,
+  role,
+  content,
+  embedding
+) {
+  await esClient.index({
+    index: INDEX_NAME,
+    document: {
+      session_id: sessionId,
+      role,
+      content,
+      embedding,
+      created_at: new Date()
+    }
+  });
 }
 
-async function saveEmbedding(messageId, sessionId, embedding) {
-  await esClient.query(
-    `
-    INSERT INTO message_embedding
-    (message_id, session_id, embedding)
-    VALUES ($1, $2, $3)
-    `,
-    [messageId, sessionId, JSON.stringify(embedding)]
-  );
+// --------------------------------------------------
+// SEARCH MEMORY
+// --------------------------------------------------
+
+async function searchMemory(queryEmbedding) {
+  const result = await esClient.search({
+    index: INDEX_NAME,
+    knn: {
+      field: "embedding",
+      query_vector: queryEmbedding,
+      k: 5,
+      num_candidates: 50
+    },
+    _source: [
+      "role",
+      "content",
+      "session_id",
+      "created_at"
+    ]
+  });
+
+  return result.hits.hits.map((hit) => ({
+    score: hit._score,
+    ...hit._source
+  }));
 }
 
 // --------------------------------------------------
@@ -67,7 +130,7 @@ const mcpClient = new Client({
 await mcpClient.connect(transport);
 
 // --------------------------------------------------
-// LLM CLIENT
+// OPENAI CLIENT
 // --------------------------------------------------
 
 const llm = new OpenAI({
@@ -76,7 +139,7 @@ const llm = new OpenAI({
 });
 
 // --------------------------------------------------
-// READLINE CHAT
+// READLINE
 // --------------------------------------------------
 
 const rl = readline.createInterface({
@@ -106,13 +169,16 @@ const tools = mcpTools.tools.map((tool) => ({
 }));
 
 // --------------------------------------------------
-// START CHAT SESSION
+// INITIALIZE
 // --------------------------------------------------
+
+await ensureIndex();
 
 console.log("\nMCP Client Started");
 console.log("Type 'exit' to quit.\n");
 
 const sessionId = await createSession();
+
 console.log("Session ID:", sessionId);
 
 // --------------------------------------------------
@@ -129,37 +195,54 @@ while (true) {
 
   try {
     // ----------------------------------------------
-    // SAVE USER MESSAGE
+    // GENERATE USER EMBEDDING
     // ----------------------------------------------
-    const userMessageId = await saveMessage(
-      sessionId,
-      "user",
-      userInput
+
+    console.log("Generating embedding...");
+
+    const userEmbedding =
+      await generateEmbedding(userInput);
+
+    // ----------------------------------------------
+    // SEARCH SIMILAR MEMORY
+    // ----------------------------------------------
+
+    console.log("Searching memory...");
+
+    const memories = await searchMemory(
+      userEmbedding
     );
 
-    // ----------------------------------------------
-    // GENERATE + SAVE USER EMBEDDING
-    // ----------------------------------------------
-    console.log("Generating user embedding...");
+    const memoryContext = memories
+      .map(
+        (m) =>
+          `[${m.role}] ${m.content}`
+      )
+      .join("\n");
 
-    const userEmbedding = await generateEmbedding(userInput);
+    // ----------------------------------------------
+    // SAVE USER MEMORY
+    // ----------------------------------------------
 
-    await saveEmbedding(
-      userMessageId,
+    await saveMemory(
       sessionId,
+      "user",
+      userInput,
       userEmbedding
     );
 
     // ----------------------------------------------
-    // ASK LLM
+    // CALL LLM
     // ----------------------------------------------
-    const response = await llm.chat.completions.create({
-      model: process.env.MODEL,
-      temperature: 0,
-      messages: [
-        {
-          role: "system",
-          content: `
+
+    const response =
+      await llm.chat.completions.create({
+        model: process.env.MODEL,
+        temperature: 0,
+        messages: [
+          {
+            role: "system",
+            content: `
 You are an India assistant.
 
 Available tools:
@@ -174,99 +257,100 @@ Rules:
 - Never assume data
 - Only answer using tool results
 
-Example:
-If user asks:
-"What is weather in capital of Rajasthan?"
+Relevant memory:
+${memoryContext}
+`
+          },
+          {
+            role: "user",
+            content: userInput
+          }
+        ],
+        tools,
+        tool_choice: "auto"
+      });
 
-Use:
-get_state_info
-          `
-        },
-        {
-          role: "user",
-          content: userInput
-        }
-      ],
-      tools,
-      tool_choice: "auto"
-    });
-
-    const message = response.choices[0].message;
+    const message =
+      response.choices[0].message;
 
     // ----------------------------------------------
-    // TOOL CALL HANDLING
+    // TOOL CALLS
     // ----------------------------------------------
+
     if (message.tool_calls) {
       for (const toolCall of message.tool_calls) {
-        const toolName = toolCall.function.name;
+        const toolName =
+          toolCall.function.name;
+
         const toolArgs = JSON.parse(
           toolCall.function.arguments
         );
 
-        console.log(`\nCalling Tool: ${toolName}`);
-        console.log("Arguments:", toolArgs);
+        console.log(
+          `\nCalling Tool: ${toolName}`
+        );
 
-        const result = await mcpClient.callTool({
-          name: toolName,
-          arguments: toolArgs
-        });
+        console.log(
+          "Arguments:",
+          toolArgs
+        );
+
+        const result =
+          await mcpClient.callTool({
+            name: toolName,
+            arguments: toolArgs
+          });
 
         const toolText =
-          result?.content?.[0]?.text || "No response";
+          result?.content?.[0]?.text ||
+          "No response";
 
         console.log(`
-AI Response:
+AI:
 ${toolText}
 `);
 
         // ------------------------------------------
-        // SAVE ASSISTANT MESSAGE
+        // SAVE ASSISTANT MEMORY
         // ------------------------------------------
-        const assistantMessageId = await saveMessage(
-          sessionId,
-          "assistant",
-          toolText
-        );
-
-        // ------------------------------------------
-        // GENERATE + SAVE ASSISTANT EMBEDDING
-        // ------------------------------------------
-        console.log("Generating assistant embedding...");
 
         const assistantEmbedding =
           await generateEmbedding(toolText);
 
-        await saveEmbedding(
-          assistantMessageId,
+        await saveMemory(
           sessionId,
+          "assistant",
+          toolText,
           assistantEmbedding
         );
       }
     } else {
+      const assistantText =
+        message.content || "";
+
       console.log(`
 AI:
-${message.content}
+${assistantText}
 `);
 
-      const assistantText = message.content || "";
-
-      const assistantMessageId = await saveMessage(
-        sessionId,
-        "assistant",
-        assistantText
-      );
+      // ------------------------------------------
+      // SAVE ASSISTANT MEMORY
+      // ------------------------------------------
 
       const assistantEmbedding =
-        await generateEmbedding(assistantText);
+        await generateEmbedding(
+          assistantText
+        );
 
-      await saveEmbedding(
-        assistantMessageId,
+      await saveMemory(
         sessionId,
+        "assistant",
+        assistantText,
         assistantEmbedding
       );
     }
   } catch (err) {
     console.error("\nERROR:");
-    console.error(err.message);
+    console.error(err);
   }
 }
